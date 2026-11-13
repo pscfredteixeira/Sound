@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         self.player.setAudioOutput(self.audio)
         self.player.positionChanged.connect(self.on_position)
         self.player.durationChanged.connect(self.on_duration)
+        self.player.playbackStateChanged.connect(self.on_playback_state)
         self.player.errorOccurred.connect(lambda _error, message: self.log("Player: " + message))
 
         root = QWidget()
@@ -226,6 +227,11 @@ class MainWindow(QMainWindow):
         self.model = QComboBox()
         self.model.addItems(MODELS)
         settings.addWidget(self.model)
+        settings.addWidget(QLabel("Device"))
+        self.device = QComboBox()
+        self.device.addItem("Auto (GPU / CPU)", "auto")
+        self.device.addItem("Force CPU (low VRAM)", "cpu")
+        settings.addWidget(self.device)
         settings.addWidget(QLabel("WAV rate"))
         self.rate = QComboBox()
         self.rate.addItems(["44100", "48000"])
@@ -340,13 +346,14 @@ class MainWindow(QMainWindow):
         self.position.setRange(0, duration)
         self.on_position(self.player.position())
 
+    def on_playback_state(self, state):
+        self.play_btn.setText("Pause" if state == QMediaPlayer.PlaybackState.PlayingState else "Play")
+
     def toggle_play(self):
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.player.pause()
-            self.play_btn.setText("Play")
         else:
             self.player.play()
-            self.play_btn.setText("Pause")
 
     def is_busy(self):
         return (self.proc is not None and self.proc.state() != QProcess.ProcessState.NotRunning) or (
@@ -372,7 +379,8 @@ class MainWindow(QMainWindow):
         self.proc.finished.connect(self.separation_finished)
         self.proc.errorOccurred.connect(lambda error: self.log(f"Processo: {error}"))
         self.proc.start(sys.executable, ["-u", "-m", "sampleforge.worker", "--input",
-                                         str(self.source), "--job", str(job), "--model", self.model_used])
+                                         str(self.source), "--job", str(job), "--model", self.model_used,
+                                         "--device", self.device.currentData()])
         self.progress.setRange(0, 0)
         self.generate.setEnabled(False)
         self.cancel_btn.setEnabled(True)
