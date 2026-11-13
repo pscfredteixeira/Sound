@@ -486,8 +486,8 @@ class MainWindow(QMainWindow):
         if not self.lib_proc:
             return
         self.lib_buffer += bytes(self.lib_proc.readAllStandardOutput()).decode("utf-8", "replace")
-        while "\\n" in self.lib_buffer:
-            line, self.lib_buffer = self.lib_buffer.split("\\n", 1)
+        while "\n" in self.lib_buffer:
+            line, self.lib_buffer = self.lib_buffer.split("\n", 1)
             if line.startswith("SF_EVENT:"):
                 try:
                     event = json.loads(line[len("SF_EVENT:"):])
@@ -520,7 +520,7 @@ class MainWindow(QMainWindow):
             self.progress.setValue(100)
             self.log(f"Biblioteca gerada: {len(self.lib_result)} WAVs em {self.lib_folder}")
             QMessageBox.information(self, "Sample Library",
-                f"{len(self.lib_result)} arquivos WAV gerados!\\n{self.lib_folder}\\n\\n"
+                f"{len(self.lib_result)} arquivos WAV gerados!\n{self.lib_folder}\n\n"
                 "A separação e o BPM são estimados. Ouça e revise os recortes.")
         else:
             self.progress.setValue(0)
