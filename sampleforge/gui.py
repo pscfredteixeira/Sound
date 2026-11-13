@@ -116,6 +116,11 @@ class MainWindow(QMainWindow):
         self.proc: QProcess | None = None
         self.proc_buffer = ""
         self.separation_error = ""
+        self.lib_proc: QProcess | None = None
+        self.lib_buffer = ""
+        self.lib_error = ""
+        self.lib_result: list[dict] = []
+        self.lib_folder = ""
         self.export_thread: ExportThread | None = None
         self.wave_threads: list[WaveformThread] = []
 
@@ -156,6 +161,10 @@ class MainWindow(QMainWindow):
         self.generate.clicked.connect(self.start_separation)
         self.generate.setEnabled(False)
         controls.addWidget(self.generate)
+        self.extract_btn = QPushButton("Generate Sample Library")
+        self.extract_btn.clicked.connect(self.start_library)
+        self.extract_btn.setEnabled(False)
+        controls.addWidget(self.extract_btn)
         self.export_btn = QPushButton("Export WAV Stems")
         self.export_btn.clicked.connect(self.start_export)
         self.export_btn.setEnabled(False)
@@ -181,6 +190,12 @@ class MainWindow(QMainWindow):
         left.setObjectName("panel")
         left_layout = QVBoxLayout(left)
         left_layout.addWidget(QLabel("SOURCE & STEMS"))
+        self.category_filter = QComboBox()
+        self.category_filter.addItems(["All", "kick", "snare", "hihat", "cymbals", "toms",
+                                       "bass", "vocal", "drums loop", "bass loop",
+                                       "vocals loop", "other loop"])
+        self.category_filter.currentTextChanged.connect(self.filter_files)
+        left_layout.addWidget(self.category_filter)
         self.files = QListWidget()
         self.files.currentItemChanged.connect(self.select_item)
         left_layout.addWidget(self.files)
@@ -302,6 +317,10 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erro ao importar", str(exc))
             return
         self.stems = {}
+        self.lib_result = []
+        self.lib_folder = ""
+        self.extract_btn.setEnabled(False)
+        self.category_filter.setCurrentText("All")
         self.files.clear()
         self.add_item("Original  •  " + self.source.name, self.source)
         self.files.setCurrentRow(0)
@@ -310,10 +329,17 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self.log(f"Importado: {self.source.name}")
 
-    def add_item(self, name, path):
+    def add_item(self, name, path, category="source"):
         item = QListWidgetItem(name)
         item.setData(Qt.ItemDataRole.UserRole, str(path))
+        item.setData(Qt.ItemDataRole.UserRole + 1, category)
         self.files.addItem(item)
+        self.filter_files(self.category_filter.currentText())
+
+    def filter_files(self, category):
+        for i in range(self.files.count()):
+            item = self.files.item(i)
+            item.setHidden(category != "All" and item.data(Qt.ItemDataRole.UserRole + 1) != category)
 
     def select_item(self, current, _previous):
         if not current:
@@ -357,13 +383,16 @@ class MainWindow(QMainWindow):
 
     def is_busy(self):
         return (self.proc is not None and self.proc.state() != QProcess.ProcessState.NotRunning) or (
+            self.lib_proc is not None and self.lib_proc.state() != QProcess.ProcessState.NotRunning) or (
             self.export_thread is not None and self.export_thread.isRunning())
 
     def start_separation(self):
         if not self.source or self.is_busy():
             return
         self.stems = {}
+        self.extract_btn.setEnabled(False)
         self.export_btn.setEnabled(False)
+        self.category_filter.setCurrentText("All")
         self.files.clear()
         self.add_item("Original  •  " + self.source.name, self.source)
         self.files.setCurrentRow(0)
@@ -417,6 +446,7 @@ class MainWindow(QMainWindow):
             for stem in STEMS:
                 self.add_item(stem.upper() + "  •  WAV", self.stems[stem])
             self.export_btn.setEnabled(True)
+            self.extract_btn.setEnabled(True)
             self.progress.setValue(100)
             self.log("Quatro stems gerados. Selecione cada stem para ouvir.")
         else:
@@ -428,6 +458,75 @@ class MainWindow(QMainWindow):
                 self.logs.append("Se houver erro de CUDA/memória, tente a instalação CPU.")
         self.proc.deleteLater()
         self.proc = None
+
+    def start_library(self):
+        if not self.stems or not self.source or self.is_busy():
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Pasta para gerar a biblioteca de samples")
+        if not folder:
+            return
+        self.lib_buffer, self.lib_error, self.lib_result, self.lib_folder = "", "", [], ""
+        self.lib_proc = QProcess(self)
+        self.lib_proc.setWorkingDirectory(str(Path(__file__).resolve().parents[1]))
+        self.lib_proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        self.lib_proc.readyReadStandardOutput.connect(self.read_library)
+        self.lib_proc.finished.connect(self.library_finished)
+        self.lib_proc.start(sys.executable, ["-u", "-m", "sampleforge.extract_worker",
+                                          "--source", str(self.source),
+                                          "--job", str(self.stems["drums"].parent),
+                                          "--destination", folder])
+        self.progress.setRange(0, 0)
+        self.cancel_btn.setEnabled(True)
+        self.generate.setEnabled(False)
+        self.extract_btn.setEnabled(False)
+        self.export_btn.setEnabled(False)
+        self.log("Separando elementos da bateria e criando WAVs individuais...")
+
+    def read_library(self):
+        if not self.lib_proc:
+            return
+        self.lib_buffer += bytes(self.lib_proc.readAllStandardOutput()).decode("utf-8", "replace")
+        while "\\n" in self.lib_buffer:
+            line, self.lib_buffer = self.lib_buffer.split("\\n", 1)
+            if line.startswith("SF_EVENT:"):
+                try:
+                    event = json.loads(line[len("SF_EVENT:"):])
+                except json.JSONDecodeError:
+                    self.log("Evento inválido do gerador de samples.")
+                    continue
+                if event.get("type") == "status":
+                    self.log(event.get("message", "Processando samples..."))
+                elif event.get("type") == "error":
+                    self.lib_error = event.get("message", "Falha na extração")
+                    self.log(self.lib_error)
+                elif event.get("type") == "result":
+                    self.lib_folder = event.get("folder", "")
+                    self.lib_result = event.get("samples", [])
+            elif line.strip():
+                self.logs.append(line[:600])
+
+    def library_finished(self, code, _status):
+        self.read_library()
+        self.progress.setRange(0, 100)
+        self.cancel_btn.setEnabled(False)
+        self.generate.setEnabled(self.source is not None)
+        self.extract_btn.setEnabled(bool(self.stems))
+        self.export_btn.setEnabled(bool(self.stems))
+        if code == 0 and self.lib_result and all(Path(rec["path"]).is_file() for rec in self.lib_result):
+            self.category_filter.setCurrentText("All")
+            for rec in self.lib_result:
+                self.add_item(str(rec["category"]).upper() + " • " + str(rec["name"]),
+                              Path(rec["path"]), str(rec["category"]))
+            self.progress.setValue(100)
+            self.log(f"Biblioteca gerada: {len(self.lib_result)} WAVs em {self.lib_folder}")
+            QMessageBox.information(self, "Sample Library",
+                f"{len(self.lib_result)} arquivos WAV gerados!\\n{self.lib_folder}\\n\\n"
+                "A separação e o BPM são estimados. Ouça e revise os recortes.")
+        else:
+            self.progress.setValue(0)
+            self.log(self.lib_error or f"Extração interrompida (código {code}). Veja Advanced.")
+        self.lib_proc.deleteLater()
+        self.lib_proc = None
 
     def start_export(self):
         if not self.stems or not self.source or self.is_busy():
@@ -466,6 +565,11 @@ class MainWindow(QMainWindow):
             self.export_thread = None
 
     def cancel_task(self):
+        if self.lib_proc and self.lib_proc.state() != QProcess.ProcessState.NotRunning:
+            self.log("Cancelando geração da biblioteca...")
+            proc = self.lib_proc
+            proc.terminate()
+            QTimer.singleShot(3500, lambda: proc.kill() if proc.state() != QProcess.ProcessState.NotRunning else None)
         if self.proc and self.proc.state() != QProcess.ProcessState.NotRunning:
             self.log("Cancelando separação...")
             proc = self.proc
