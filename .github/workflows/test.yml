@@ -11,6 +11,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: python -m pip install pytest numpy soundfile
+      - run: python -m pip install pytest numpy soundfile 'librosa>=0.10.2,<0.12'
       - run: python -m pytest tests -q
       - run: python -m compileall -q sampleforge
