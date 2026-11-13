@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.wav
+*.mp3
+*.flac
+*.partial/
+models/
+jobs/
+dist/
+build/
