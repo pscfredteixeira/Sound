@@ -30,7 +30,7 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m sampleforge
 ```
 
-Default installation uses CPU (slower). For NVIDIA CUDA, use the PyTorch [official install selector](https://pytorch.org/get-started/locally/) for your driver, then install `audio-separator[gpu]` inside the same virtual environment. Check `python -c "import torch; print(torch.cuda.is_available())"` with the venv Python. CUDA is **not** guaranteed by merely having an NVIDIA GPU. Demucs uses 7-second segments and 1 shift to limit VRAM usage; if you encounter OOM, use the CPU installation.
+Default installation uses CPU (slower). For NVIDIA CUDA, use the PyTorch [official install selector](https://pytorch.org/get-started/locally/) for your driver, then install `audio-separator[gpu]` inside the same virtual environment. Check `python -c "import torch; print(torch.cuda.is_available())"` with the venv Python. CUDA is **not** guaranteed by merely having an NVIDIA GPU. Demucs uses 7-second segments and 1 shift to limit VRAM usage. In **Advanced → Device**, choose **Force CPU (low VRAM)** to process locally without CUDA if your GPU runs out of memory; this does not require switching environments.
 
 ## Architecture
 
@@ -62,6 +62,12 @@ Tests generate synthetic WAV audio and verify waveform reading, four-stem valida
 - This program makes no audio uploads, login requests or cloud inference. The **first model download** does require an internet connection; afterward model inference is local.
 - Export files are new files. Intermediate jobs are kept until manually removed. You are responsible for using audio you own or are licensed to process.
 - FFmpeg and its build may have LGPL/GPL obligations depending on distribution; consult its licensing before bundling binaries.
+
+## Sample Recovery & Sample Playground
+
+The future **Sample Recovery** mode will help reconstruct usable one-shots and phrases from previously finished tracks, with clear confidence limits. A future **Sample Playground** will provide a real step sequencer and multitrack timeline to arrange recovered audio, preview patterns and export WAV mixdowns. Neither feature is simulated as functional in Stage 1.
+
+See [the Portuguese implementation roadmap](docs/ROADMAP_RECOVERY_PLAYGROUND.md) for requirements and acceptance criteria.
 
 ## Roadmap
 
